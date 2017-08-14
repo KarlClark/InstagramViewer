@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/miSearch"
+        app:showAsAction="ifRoom"
+        android:icon="@android:drawable/ic_menu_search"
+        android:onClick="onSearchClicked"
+        android:title="Search"/>
+
+    <item
+        android:id="@+id/miRevert"
+        app:showAsAction="ifRoom"
+        android:enabled="false"
+        android:visible="false"
+        android:icon="@android:drawable/ic_menu_revert"
+        android:onClick="onRevertClicked"
+        android:title="Revert"/>
+
+    <item
+        android:id="@+id/miLogout"
+        app:showAsAction="never"
+        android:onClick="onLogoutClicked"
+        android:title="Logout"/>
+
+</menu>

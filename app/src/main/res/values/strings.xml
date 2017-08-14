@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Instagram Viewer</string>
+    <string name="pictures_from">Pictures from user %1$s</string>
+    <string name="Your_pictres">Your pictures</string>
+    <string name="Can_not_retrieve">Can not retrieve images: Message= %1$s</string>
+    <string name="Self_no_images">You have no images.</string>
+    <string name="wifi_off">Wi-Fi is off. Do you want to turn on Wi-Fi?</string>
+    <string name="no_network">No newtwork available.</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="close_app">Close app</string>
+    <string name="like">Like</string>
+    <string name="unlike">un-like</string>
+    <string name="search">Search</string>
+    <string name="cancel">Cancel</string>
+    <string name="error">Error: %1$s</string>
+    <string name="onFailure">Retrofit failure: %1$s</string>
+    <string name="ChoseUser">Choose a user.</string>
+    <string name="NoMatched">No users match the name %1$s</string>
+    <string name="User_no_images">There are no images for user %1$s</string>
+    <string name="Ok">Ok</string>
+    <string name="Unknown">Unknown result. No meta data returned.</string>
+    <string name="waiting">Waiting for Wifi connection.</string>
+</resources>

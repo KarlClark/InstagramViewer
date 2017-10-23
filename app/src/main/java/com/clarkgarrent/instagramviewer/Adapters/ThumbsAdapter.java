@@ -26,9 +26,9 @@ public class ThumbsAdapter extends Adapter<ThumbsAdapter.ViewHolder> {
     private ArrayList<UserMediaData> mUserMediaData;
     private Context mContext;
 
-    private static OnItemClickListener itemListener;
+    private OnItemClickListener itemListener;
 
-    private static OnButtonClickListener buttonListener;
+    private OnButtonClickListener buttonListener;
 
     public interface OnItemClickListener {
         void onItemClick(int position);
@@ -52,10 +52,10 @@ public class ThumbsAdapter extends Adapter<ThumbsAdapter.ViewHolder> {
 
     public class ViewHolder extends RecyclerView.ViewHolder {
 
-        public ImageView thumbImageView;
-        public Button btnLike;
+        private ImageView thumbImageView;
+        private Button btnLike;
 
-        public ViewHolder (View view){
+        private ViewHolder (View view){
             super(view);
             thumbImageView =(ImageView)view.findViewById(R.id.thumbImageView);
             btnLike = (Button)view.findViewById(R.id.btnLike);
@@ -86,14 +86,15 @@ public class ThumbsAdapter extends Adapter<ThumbsAdapter.ViewHolder> {
         LayoutInflater inflater = LayoutInflater.from(context);
 
         View thumbView = inflater.inflate(R.layout.thumb_item, parent, false);
-        ViewHolder viewHolder = new ViewHolder(thumbView);
-        return viewHolder;
+        return new ViewHolder(thumbView);
     }
 
     @Override
     public void onBindViewHolder(ViewHolder viewHolder, int position){
         viewHolder.thumbImageView.setImageResource(android.R.color.transparent);
-        Picasso.with(mContext).load(mUserMediaData.get(position).getImages().getThumbnail().getUrl()).into(viewHolder.thumbImageView);
+        Picasso.with(mContext)
+                .load(mUserMediaData.get(position).getImages().getThumbnail().getUrl())
+                .into(viewHolder.thumbImageView);
         if (mUserMediaData.get(position).isLiked()){
             viewHolder.btnLike.setBackgroundResource(0);
             viewHolder.btnLike.setBackgroundResource(R.drawable.heart_red);

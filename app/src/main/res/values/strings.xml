@@ -20,5 +20,10 @@
     <string name="User_no_images">There are no images for user %1$s</string>
     <string name="Ok">Ok</string>
     <string name="Unknown">Unknown result. No meta data returned.</string>
-    <string name="waiting">Waiting for Wifi connection.</string>
+    <string name="waiting_wifi">Waiting for Wifi connection.</string>
+    <string name="try_again">Try again</string>
+    <string name="is_it_connected">\nIs device connected to internet?</string>
+    <string name="waiting_internet">Checking for internet connection.</string>
+    <string name="no_internet">There is no internet connection.\nApp will close.</string>
+    <string name="no_wifi">Can\'t connect to wifi.\nUse phone network?</string>
 </resources>

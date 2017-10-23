@@ -10,6 +10,14 @@ public class Meta {
     private String code;
     private String error_message;
 
+    public Meta(){}
+
+    public Meta(String error_type, String error_message) {
+        this.error_type = error_type;
+        this.error_message = error_message;
+        code = "";
+    }
+
     public String getError_type() {
         return error_type;
     }

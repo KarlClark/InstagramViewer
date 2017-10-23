@@ -1,6 +1,5 @@
 package com.clarkgarrent.instagramviewer;
 
-import android.util.Log;
 
 import com.clarkgarrent.instagramviewer.Models.LikesData;
 import com.clarkgarrent.instagramviewer.Models.UserMediaData;
@@ -26,25 +25,29 @@ public class GlobalValues {
     public static final String PREFS_NAME = "prefs_name";
     public static final String PREFS_TOKEN = "prefs_token";
 
-    public static void setLikedIds(LikesData[] likedData){
-        // Create an array list from the array that was originally populated by Retrofit
-        likedIds = new ArrayList<>();
-        for (int i = 0; i < likedData.length; i++){
-            likedIds.add(likedData[i].getId());
+    public static void setLikedIds(ArrayList<LikesData> likedData){
+        // Create an array list from the array list that was originally populated by Retrofit
+        if (likedData == null){
+            likedIds = null;
+        } else {
+            likedIds = new ArrayList<>();
+            for (LikesData ld : likedData) {
+                likedIds.add(ld.getId());
+            }
         }
     }
 
-    public static void setUserMediaData(UserMediaData[] data){
+    public static void setUserMediaData(ArrayList<UserMediaData> data){
         // Create and array list from the UserMediaData array created by Retrofit.
         // Throw out video files. Compare each item to the list of liked items and
         // set the liked field appropriately.
         alUserMediaData = new ArrayList<>();
-        for (int i = 0; i < data.length; i++){
-            if ( ! data[i].getType().equals("video")){
-                if (likedIds.indexOf(data[i].getId()) != -1){
-                    data[i].setLiked(true);
+        for (UserMediaData umd:data){
+            if ( ! umd.getType().equals("video")){
+                if (likedIds.indexOf(umd.getId()) != -1){
+                    umd.setLiked(true);
                 }
-                alUserMediaData.add(data[i]);
+                alUserMediaData.add(umd);
             }
         }
     }

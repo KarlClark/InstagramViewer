@@ -1,10 +1,12 @@
 package com.clarkgarrent.instagramviewer.Models;
 
+import com.clarkgarrent.instagramviewer.LoaderInterface;
+
 /**
  * Created by karlc on 8/11/2017.
  */
 
-public class PostDeleteLikeResponse {
+public class PostDeleteLikeResponse implements LoaderInterface{
 
     private Meta meta;
 
@@ -14,5 +16,9 @@ public class PostDeleteLikeResponse {
 
     public void setMeta(Meta meta) {
         this.meta = meta;
+    }
+
+    public LoaderResult getLoaderResult(){
+        return new LoaderResult(null, meta);
     }
 }

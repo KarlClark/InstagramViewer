@@ -1,19 +1,23 @@
 package com.clarkgarrent.instagramviewer.Models;
 
+import com.clarkgarrent.instagramviewer.LoaderInterface;
+
+import java.util.ArrayList;
+
 /**
  * Created by karlc on 8/12/2017.
  */
 
-public class UserSearchResponse {
+public class UserSearchResponse implements LoaderInterface{
 
-    private UserData[] data;
+    private ArrayList<UserData> data;
     private Meta meta;
 
-    public UserData[] getData() {
+    public ArrayList<UserData> getData() {
         return data;
     }
 
-    public void setData(UserData[] data) {
+    public void setData(ArrayList<UserData> data) {
         this.data = data;
     }
 
@@ -23,5 +27,9 @@ public class UserSearchResponse {
 
     public void setMeta(Meta meta) {
         this.meta = meta;
+    }
+
+    public LoaderResult getLoaderResult(){
+        return new LoaderResult(data, meta);
     }
 }

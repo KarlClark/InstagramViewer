@@ -1,10 +1,14 @@
 package com.clarkgarrent.instagramviewer.Activities;
 
+import android.app.LoaderManager;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.Loader;
 import android.support.v4.app.NavUtils;
+import android.support.v7.app.ActionBar;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.PagerSnapHelper;
 import android.support.v7.widget.RecyclerView;
@@ -14,17 +18,14 @@ import android.view.MenuItem;
 import android.view.View;
 
 import com.clarkgarrent.instagramviewer.Adapters.LargeViewAdapter;
-import com.clarkgarrent.instagramviewer.Adapters.ThumbsAdapter;
 import com.clarkgarrent.instagramviewer.GlobalValues;
 import com.clarkgarrent.instagramviewer.InstagramEndpointsInterface;
-import com.clarkgarrent.instagramviewer.Models.PostDeleteLikeResponse;
+import com.clarkgarrent.instagramviewer.JsonLoader;
+import com.clarkgarrent.instagramviewer.Models.LoaderResult;
+import com.clarkgarrent.instagramviewer.Models.Meta;
 import com.clarkgarrent.instagramviewer.Models.UserMediaData;
-import com.clarkgarrent.instagramviewer.Models.UserMediaResponse;
 import com.clarkgarrent.instagramviewer.R;
 
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
@@ -34,12 +35,14 @@ import retrofit2.converter.gson.GsonConverterFactory;
  * in a global static field, so there is not much this activity need to do.  See the GridViewActivity
  * for some explanation on how the Retrofit calls work.
  */
-public class LargeViewActivity extends AppCompatActivity {
+public class LargeViewActivity extends AppCompatActivity implements LoaderManager.LoaderCallbacks<LoaderResult>{
 
-    private RecyclerView mRecyclerView;
     private LargeViewAdapter mLargeViewAdapter;
     private InstagramEndpointsInterface mApiService;
     private int mPosition;
+    private String mLikeId;
+    private static final int POST_LIKE_LOAD = 8;
+    private static final int DELETE_LIKE_LOAD = 9;
     public static final String POSITION_EXTRA = "position_extra";
     public static final String TAG = "## My Info ##";
 
@@ -49,15 +52,18 @@ public class LargeViewActivity extends AppCompatActivity {
         setContentView(R.layout.activity_large_view);
 
         setResult(RESULT_CANCELED, new Intent());
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
 
         setUpRetrofitService();
 
-        mRecyclerView = (RecyclerView)findViewById(R.id.rvLargeView);
-        mRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        RecyclerView recyclerView = (RecyclerView)findViewById(R.id.rvLargeView);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         // The SnapHelper causes the RecyclerView to scroll one item (one page in our case) at a time.
         SnapHelper snapHelper = new PagerSnapHelper();
-        snapHelper.attachToRecyclerView(mRecyclerView);
+        snapHelper.attachToRecyclerView(recyclerView);
 
         mLargeViewAdapter = new LargeViewAdapter(this, GlobalValues.alUserMediaData);
         mLargeViewAdapter.setOnItemClickListener(new LargeViewAdapter.OnItemClickListener() {
@@ -70,20 +76,19 @@ public class LargeViewActivity extends AppCompatActivity {
                 setResult(RESULT_OK, new Intent());
                 mPosition = position;
                 UserMediaData userMediaData = GlobalValues.alUserMediaData.get(position);
+                mLikeId = userMediaData.getId();
                 mLargeViewAdapter.notifyItemChanged(mPosition);
                 if (userMediaData.isLiked()){
                     userMediaData.setLiked(false);
-                    Call<PostDeleteLikeResponse> call = mApiService.deleteLike(userMediaData.getId(),GlobalValues.token);
-                    call.enqueue(new MyCallback());
+                    getLoaderManager().restartLoader(DELETE_LIKE_LOAD, null, LargeViewActivity.this);
                 } else {
                     userMediaData.setLiked(true);
-                    Call<PostDeleteLikeResponse> call = mApiService.postLike(userMediaData.getId(),GlobalValues.token);
-                    call.enqueue(new MyCallback());
+                    getLoaderManager().restartLoader(POST_LIKE_LOAD, null, LargeViewActivity.this);
                 }
             }
         });
-        mRecyclerView.setAdapter(mLargeViewAdapter);
-        mRecyclerView.scrollToPosition(getIntent().getIntExtra(POSITION_EXTRA, 0));
+        recyclerView.setAdapter(mLargeViewAdapter);
+        recyclerView.scrollToPosition(getIntent().getIntExtra(POSITION_EXTRA, 0));
     }
 
     @Override
@@ -97,6 +102,33 @@ public class LargeViewActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public Loader<LoaderResult> onCreateLoader(int id, Bundle args){
+        Log.i(TAG,"onCreateLoader");
+
+        switch (id) {
+
+            case POST_LIKE_LOAD:
+                return new JsonLoader(this, mApiService.postLike(mLikeId, GlobalValues.token));
+
+            case DELETE_LIKE_LOAD:
+                return new JsonLoader(this, mApiService.deleteLike(mLikeId, GlobalValues.token));
+        }
+        return null;
+    }
+
+    @Override
+    public void onLoadFinished(Loader<LoaderResult> loader, LoaderResult loaderResult){
+        Log.i(TAG,"onLoadFinished");
+
+        metaError(loaderResult.getMeta(), loader.getId());
+    }
+
+    @Override
+    public void onLoaderReset(Loader<LoaderResult> loader){
+        Log.i(TAG,"onLoaderReset");
+    }
+
 
     private void setUpRetrofitService(){
         Retrofit retrofit = new Retrofit.Builder()
@@ -106,15 +138,43 @@ public class LargeViewActivity extends AppCompatActivity {
         mApiService = retrofit.create(InstagramEndpointsInterface.class);
     }
 
-    private class MyCallback implements Callback<PostDeleteLikeResponse> {
+    private boolean metaError(Meta meta, int loaderId) {
 
-        @Override
-        public void onResponse(Call<PostDeleteLikeResponse> call, Response<PostDeleteLikeResponse> response) {
-
+        if (meta == null){
+            showErrorDialog(getString(R.string.Unknown), loaderId);
+            return true;
         }
 
-        public void onFailure(Call<PostDeleteLikeResponse> call, Throwable t) {
-            Log.e(TAG,"onFailure: " + t.getMessage());
+        if (meta.getCode().equals("200")){
+            return false;
         }
+
+        String msg = meta.getError_message();
+
+        if (meta.getError_type().equals(JsonLoader.NETWORK_IO_ERROR)){
+            msg = msg + getString(R.string.is_it_connected);
+        }
+
+        Log.e(TAG,"Error loading data from internet " + meta.getCode() + "  " + meta.getError_type() + " " + meta.getError_message());
+        showErrorDialog(msg, loaderId);
+        return true;
+    }
+
+    private void showErrorDialog(String msg, final int loaderId){
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setMessage(msg)
+                .setNegativeButton(getString(R.string.close_app), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        finish();
+                    }
+                })
+                .setPositiveButton(getString(R.string.try_again), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        getLoaderManager().restartLoader(loaderId, null, LargeViewActivity.this);
+                    }
+                } )
+                .create().show();
     }
 }

@@ -2,8 +2,10 @@ package com.clarkgarrent.instagramviewer.Activities;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.app.LoaderManager;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.Loader;
 import android.content.SharedPreferences;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -21,26 +23,15 @@ import android.widget.TextView;
 import com.clarkgarrent.instagramviewer.Adapters.ThumbsAdapter;
 import com.clarkgarrent.instagramviewer.GlobalValues;
 import com.clarkgarrent.instagramviewer.InstagramEndpointsInterface;
-import com.clarkgarrent.instagramviewer.Models.ErrorResponse;
-import com.clarkgarrent.instagramviewer.Models.LikesResponse;
+import com.clarkgarrent.instagramviewer.JsonLoader;
+import com.clarkgarrent.instagramviewer.Models.LikesData;
+import com.clarkgarrent.instagramviewer.Models.LoaderResult;
 import com.clarkgarrent.instagramviewer.Models.Meta;
-import com.clarkgarrent.instagramviewer.Models.PostDeleteLikeResponse;
 import com.clarkgarrent.instagramviewer.Models.UserData;
 import com.clarkgarrent.instagramviewer.Models.UserMediaData;
-import com.clarkgarrent.instagramviewer.Models.UserMediaResponse;
-import com.clarkgarrent.instagramviewer.Models.UserSearchResponse;
 import com.clarkgarrent.instagramviewer.R;
-import com.google.gson.Gson;
-import com.google.gson.TypeAdapter;
+import java.util.ArrayList;
 
-import java.io.IOException;
-
-import okhttp3.OkHttpClient;
-import okhttp3.ResponseBody;
-import okhttp3.logging.HttpLoggingInterceptor;
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
@@ -56,7 +47,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
  *  connection and allows user to turn on the Wifi.  Another allows user to login to Instagram.
  *
  *  This activity  also retrieves data from Instagram's REST api.  It uses Square's Retrofit library
- *  to do this.  Using Retrofit involves several steps.
+ *  and an AsyncTaskLoader to do this.  Using Retrofit involves several steps.
  *      First you create a bunch of java (POJO) model classes that correspond to the JSON data
  *      described on the Instagram web site.  Retrofit will automatically generate instances of
  *      these POJOs from the JSON data.  These objects can then be used programmatically to access
@@ -67,19 +58,20 @@ import retrofit2.converter.gson.GsonConverterFactory;
  *      a different endpoint.  Java annotations provided by the Retrofit library are used
  *      extensively to write these methods.
  *
- *      Then this interface is passed to Retrofit which uses it to generate a service class that
- *      has concrete methods corresponding to each method in the interface.  These methods can
- *      be used to down load the JSON data and fill the models.
+ *      Then this interface is passed to Retrofit which uses it to generate a service class.  This
+ *      service can be used to generate what Retrofit terms a Call object that corresponds to
+ *      a specific endpoint.  Calling teh execute method on the call object will retrieve the
+ *      data from that endpoint.  This activity passes the call object to the AsyncTaskLoader
+ *      to load the data in the background.
  *
  *  The activity then uses the data to fill in the UI.  Note: the JSON data contains URLs pointing
  *  to the actual images.  The actual images are retrieved by the RecyclerView adapter using
  *  Square's Picasso library.
 */
-public class GridViewActivity extends AppCompatActivity {
+public class GridViewActivity extends AppCompatActivity implements LoaderManager.LoaderCallbacks<LoaderResult> {
 
-    private RecyclerView mRecylclerView;
+    private RecyclerView mRecyclerView;
     private TextView mTvInfo;
-    private View mDialogView;
     private EditText mEtUsername;
     private Dialog mUsernameDialog;
     private ThumbsAdapter mThumbsAdapter;
@@ -87,11 +79,19 @@ public class GridViewActivity extends AppCompatActivity {
     private SharedPreferences mPrefs;
     private String mUsername;
     private String mUserId;
-    private UserData[] mUserData;
+    private String mLikeId;
     private boolean mShowRevertOption = false;
     private static final int OAUTH_ACTIVITY_TAG = 0;
     private static final int CONNECTION_ACTIVITY_TAG = 1;
     private static final int LARGE_VIEW_ACTIVITY_TAG = 2;
+    private static final int SELF_MEDIA_LOAD = 3;
+    private static final int SELF_MEDIA_AND_LIKES_LOAD = 4;
+    private static final int USER_MEDIA_AND_LIKES_LOAD = 5;
+    private static final int USER_MEDIA_LOAD = 6;
+    private static final int MATCHING_USERS_LOAD = 7;
+    private static final int POST_LIKE_LOAD = 8;
+    private static final int DELETE_LIKE_LOAD = 9;
+
     private static final String TAG = "## My Info ##";
 
     @Override
@@ -99,8 +99,8 @@ public class GridViewActivity extends AppCompatActivity {
 
         // Start the activity to check the network connection. If all goes well, it
         // won't even interact with the user.  Note: the real work of this activity
-        // (downloading data) doesn't start until the started activity returns in
-        // onActivityResult();
+        // (downloading data) doesn't start until the started activity returns a result
+        // in onActivityResult();
         Intent intent = new Intent(this, ConnectionActivity.class);
         startActivityForResult(intent, CONNECTION_ACTIVITY_TAG);
 
@@ -134,6 +134,104 @@ public class GridViewActivity extends AppCompatActivity {
         return super.onPrepareOptionsMenu(menu);
     }
 
+    @Override
+    public Loader<LoaderResult> onCreateLoader(int id, Bundle args){
+
+        // The LoaderManager is for a loader instance.  We use the id value to create an
+        // instance of a loader that will download from the specific endpoint.  The loader
+        // requires a Retrofit Call instance which is created using the Retrofit service.
+        Log.i(TAG,"onCreateLoader");
+
+        switch (id) {
+            case SELF_MEDIA_AND_LIKES_LOAD:
+            case USER_MEDIA_AND_LIKES_LOAD:
+                // We need the likes data before we can process the media data, so load it
+                // first.  The media load will be started when the likes data is returned
+                // in the onLoadFinished callback.
+                return new JsonLoader(this, mApiService.getLiked(GlobalValues.token));
+
+            case SELF_MEDIA_LOAD:
+                return new JsonLoader(this, mApiService.getSelfMedia(GlobalValues.token));
+
+            case USER_MEDIA_LOAD:
+                return new JsonLoader(this, mApiService.getUserMedia(mUserId, GlobalValues.token));
+
+            case MATCHING_USERS_LOAD:
+                return new JsonLoader(this, mApiService.getMatchingUsers(mUsername, GlobalValues.token));
+
+            case POST_LIKE_LOAD:
+                return new JsonLoader(this, mApiService.postLike(mLikeId, GlobalValues.token));
+
+            case DELETE_LIKE_LOAD:
+                return new JsonLoader(this, mApiService.deleteLike(mLikeId, GlobalValues.token));
+        }
+        return null;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public void onLoadFinished(Loader<LoaderResult> loader, LoaderResult loaderResult){
+        Log.i(TAG,"onLoadFinished");
+        // One of the possible loader instances has returned its data.
+
+        // First check to see if there was an error.
+        if (metaError(loaderResult.getMeta(), loader.getId())){
+            return;
+        }
+
+        switch (loader.getId()) {
+            case SELF_MEDIA_AND_LIKES_LOAD:
+                // We have the likes data so now get the media data.
+                GlobalValues.setLikedIds ((ArrayList<LikesData>)loaderResult.getData());
+                getLoaderManager().restartLoader(SELF_MEDIA_LOAD, null, this);
+                break;
+
+            case USER_MEDIA_AND_LIKES_LOAD:
+                // We have the likes data so now get the media data.
+                GlobalValues.setLikedIds ((ArrayList<LikesData>)loaderResult.getData());
+                getLoaderManager().restartLoader(USER_MEDIA_LOAD, null, this);
+                break;
+
+            case SELF_MEDIA_LOAD:
+                processMediaData((ArrayList<UserMediaData>)loaderResult.getData(), getString(R.string.Your_pictres), getString(R.string.Self_no_images));
+                break;
+
+            case USER_MEDIA_LOAD:
+                processMediaData((ArrayList<UserMediaData>)loaderResult.getData(),getString(R.string.pictures_from, mUsername) , getString(R.string.User_no_images , mUsername));
+                break;
+
+            case MATCHING_USERS_LOAD:
+                processMatchingUsersData((ArrayList<UserData>)loaderResult.getData());
+                break;
+
+            case POST_LIKE_LOAD:
+            case DELETE_LIKE_LOAD:
+        }
+    }
+
+    @Override
+    public void onLoaderReset(Loader<LoaderResult> loader){
+        // Delete references to loader data.
+        Log.i(TAG,"onLoaderReset");
+        switch(loader.getId()){
+            case SELF_MEDIA_AND_LIKES_LOAD:
+            case USER_MEDIA_AND_LIKES_LOAD:
+                GlobalValues.setLikedIds(null);
+                break;
+            case SELF_MEDIA_LOAD:
+            case USER_MEDIA_LOAD:
+                mRecyclerView.setAdapter(null);
+                mThumbsAdapter = null;
+                GlobalValues.alUserMediaData = null;
+                break;
+            case MATCHING_USERS_LOAD:
+                mUsername = null;
+                mUserId = null;
+                break;
+            default: {}
+        }
+    }
+
     // Called when the search option in the action bar is clicked.  Display a dialog allowing
     // user to enter a username.
     public void onSearchClicked(MenuItem mi){
@@ -145,7 +243,7 @@ public class GridViewActivity extends AppCompatActivity {
     public void onRevertClicked(MenuItem mi){
         mShowRevertOption = false;
         invalidateOptionsMenu();
-        getSelfMedia();
+        getLoaderManager().initLoader(SELF_MEDIA_LOAD, null, this);
     }
 
     // Called when the Logout option in the action bar is clicked. Finish the app but
@@ -153,23 +251,23 @@ public class GridViewActivity extends AppCompatActivity {
     // see there is no access token.  It will start the OAuthActivity and user will
     // have to log on again.
     public void onLogoutClicked(MenuItem mi){
-        mPrefs.edit().putString(GlobalValues.PREFS_TOKEN, "").commit();
+        mPrefs.edit().putString(GlobalValues.PREFS_TOKEN, "").apply();
         finish();
     }
 
     private void setUpViews(){
 
-        mRecylclerView = (RecyclerView)findViewById(R.id.rvThumbs);
-        mRecylclerView.setLayoutManager(new GridLayoutManager(this, 3));
+        mRecyclerView = (RecyclerView)findViewById(R.id.rvThumbs);
+        mRecyclerView.setLayoutManager(new GridLayoutManager(this, 3));
 
         mTvInfo = (TextView)findViewById(R.id.tvInfo);  // Located on top of screen
 
         // The following two views are used inside the alert dialog.  The dialog is used
         // to retrieve a username from the user.
-        mDialogView = getLayoutInflater().inflate(R.layout.dialog_layout, null);
-        mEtUsername = (EditText)mDialogView.findViewById(R.id.etUsername);
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_layout, null);
+        mEtUsername = (EditText)dialogView.findViewById(R.id.etUsername);
         AlertDialog.Builder builder = new AlertDialog.Builder(GridViewActivity.this);
-        mUsernameDialog = builder.setView(mDialogView)
+        mUsernameDialog = builder.setView(dialogView)
                             .setPositiveButton(getString(R.string.search), new DialogInterface.OnClickListener() {
                                 @Override
                                 public void onClick(DialogInterface dialog, int which) {
@@ -179,7 +277,7 @@ public class GridViewActivity extends AppCompatActivity {
                                     mShowRevertOption = true;
                                     invalidateOptionsMenu();
                                     mUsername = mEtUsername.getText().toString();
-                                    getMatchingUsers();
+                                    getLoaderManager().restartLoader(MATCHING_USERS_LOAD, null, GridViewActivity.this);
                                 }
                             })
                             .setNegativeButton(getString(R.string.cancel), new DialogInterface.OnClickListener() {
@@ -192,8 +290,8 @@ public class GridViewActivity extends AppCompatActivity {
 
     private void setUpRetrofitService(){
 
-        // As mentioned above, this is where Retrofit is used to generate a concrete
-        // class from our interface.
+        // As mentioned above, this is where Retrofit is used to generate service that
+        // can be used to created Call instances for specific endpoints.
 
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(GlobalValues.BASE_URL)
@@ -209,201 +307,57 @@ public class GridViewActivity extends AppCompatActivity {
         startActivityForResult(intent,OAUTH_ACTIVITY_TAG);
     }
 
-    // The following method uses the username the user entered to search for matching names on
-    // Instagram website. THe names are then displayed in a dialog so the usr can choose one.
-    private void getMatchingUsers(){
-        // The following is an example of using the retrofit library to retrieve JSON data from
-        // a REST api and deserialize it into java model objects.  In the below line,
-        // getMatchingUsers is a method name from our retrofit interface, and UserSearchResponse
-        // is the java class the data will be deserialized into.
-        Call<UserSearchResponse> call = mApiService.getMatchingUsers(mUsername,GlobalValues.token);
+    private void processMatchingUsersData(final ArrayList<UserData> userData){
+        // Check if there are any matching names.
+        if (userData.size() == 0){
+            mTvInfo.setText(getString(R.string.NoMatched, mUsername));
+            return;
+        }
 
-        // The Call object is now placed in a queue ot run asynchronously with a callback attached.
-        call.enqueue(new Callback<UserSearchResponse>() {
+        // If there is only one name retrieved, and it is an exact match to what the
+        // user asked for, then we don't have to show the user a list, just go ahead and
+        // get the data.
+        if (userData.size() == 1 && userData.get(0).getUsername().equals(mUsername)){
+            mUserId = userData.get(0).getId();
+            Log.i(TAG,"restart user media and likes load, mUserid= " + mUserId + " " + mUsername);
+            getLoaderManager().restartLoader(USER_MEDIA_AND_LIKES_LOAD, null, GridViewActivity.this);
+        }
 
-            @Override
-            public void onResponse(Call<UserSearchResponse> call, Response<UserSearchResponse> response) {
-
-                Meta meta = null;
-                if (response.body() != null){
-                    meta = response.body().getMeta();
-                } else {
-                    if (response.errorBody() != null){
-                        meta = getMetaFromErrorBody(response.errorBody());
+        // Store names in an array and display to array in an AlertDialog.
+        final String[] userNames = new String[userData.size()];
+        for (int i = 0; i < userData.size(); i++){
+            userNames[i] = userData.get(i).getUsername();
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(GridViewActivity.this);
+        builder.setTitle(getString(R.string.ChoseUser))
+                .setItems(userNames, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        // Call method to get data for user.  Global variables used later
+                        // in callbacks.
+                        mUsername = userNames[which];
+                        mUserId = userData.get(which).getId();
+                        Log.i(TAG,"restart user media and likes load, mUserid= " + mUserId + " " + mUsername);
+                        getLoaderManager().restartLoader(USER_MEDIA_AND_LIKES_LOAD, null, GridViewActivity.this);
                     }
-                }
-                if (metaError(meta, false)){
-                    return;  // Instagram returns errors in an JSON object called meta.
-                }
-
-                // Instagram returns data in an object call data.  We store the data in a
-                // global variable so it can be accessed in the dialog callback below.
-                mUserData = response.body().getData();
-
-                // Check if there are any matching names.
-                if (mUserData.length == 0){
-                    mTvInfo.setText(getString(R.string.NoMatched, mUsername));
-                    return;
-                }
-
-                // If there is only one name retrieved, and it is an exact match to what the
-                // user asked for, then we don't have to show the user a list, just go ahead and
-                // get the data.
-                if (mUserData.length == 1 && mUserData[0].getUsername() == mUsername){
-                    mUserId = mUserData[0].getId();
-                    getUserMediaAnLiked();
-                }
-
-                // Store names in an array and display to array in an AlertDialog.
-                final String[] userNames = new String[mUserData.length];
-                for (int i = 0; i < mUserData.length; i++){
-                    userNames[i] = mUserData[i].getUsername();
-                }
-                AlertDialog.Builder builder = new AlertDialog.Builder(GridViewActivity.this);
-                        builder.setTitle(getString(R.string.ChoseUser))
-                                .setItems(userNames, new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    // Call method to get data for user.  Global variables used later
-                                    // in callbacks.
-                                    mUsername = userNames[which];
-                                    mUserId = mUserData[which].getId();
-                                    getUserMediaAnLiked();
-                                }
-                                })
-                                .setNeutralButton(getString(R.string.cancel), new DialogInterface.OnClickListener() {
-                                    @Override
-                                    public void onClick(DialogInterface dialog, int which) {
-                                        // User canceled dialog.
-                                    }
-                                })
-                                .create().show();
-            }
-
-            @Override
-            public void onFailure(Call<UserSearchResponse> call, Throwable t) {
-                failureError(t);
-            }
-        });
-    }
-
-    // The Retrofit aspects of this method are described above.  First we queue up a call
-    // retrieve a list of images the user likes.  When the call returns we retrieve the media data.
-    // this way we know the likes data is available when we process the media data.
-    private void getSelfMediaAndLiked(){
-        Call<LikesResponse> call = mApiService.getLiked(GlobalValues.token);
-        call.enqueue(new Callback<LikesResponse>() {
-            @Override
-            public void onResponse(Call<LikesResponse> call, Response<LikesResponse> response) {
-
-                Meta meta = null;
-                if (response.body() != null){
-                    meta = response.body().getMeta();
-                } else {
-                    if (response.errorBody() != null){
-                        meta = getMetaFromErrorBody(response.errorBody());
+                })
+                .setNeutralButton(getString(R.string.cancel), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        // User canceled dialog.
                     }
-                }
-                if (metaError(meta, true)) {
-                    return;
-                }
-                // Store data in a public static class so other activities can access it.
-                GlobalValues.setLikedIds(response.body().getData());
-                // Get the media data.
-                getSelfMedia();
-            }
-
-            @Override
-            public void onFailure(Call<LikesResponse> call, Throwable t) {
-                failureError(t);
-            }
-        });
+                })
+                .create().show();
     }
 
-    // Similar to above method but for a different username.
-    private void getUserMediaAnLiked(){
-        Call<LikesResponse> call = mApiService.getLiked(GlobalValues.token);
-        call.enqueue(new Callback<LikesResponse>() {
-
-            @Override
-            public void onResponse(Call<LikesResponse> call, Response<LikesResponse> response) {
-
-                Meta meta = null;
-                if (response.body() != null){
-                    meta = response.body().getMeta();
-                } else {
-                    if (response.errorBody() != null){
-                        meta = getMetaFromErrorBody(response.errorBody());
-                    }
-                }
-                if (metaError(meta, false)) {
-                    return;
-                }
-                GlobalValues.setLikedIds(response.body().getData());
-                getUserMedia();
-            }
-
-            @Override
-            public void onFailure(Call<LikesResponse> call, Throwable t) {
-                failureError(t);
-            }
-        });
-    }
-
-    // Get media data for a specific user.
-    private void getUserMedia(){
-
-        Call<UserMediaResponse> call = mApiService.getUserMedia(mUserId, GlobalValues.token);
-        call.enqueue(new Callback<UserMediaResponse>() {
-            @Override
-            public void onResponse(Call<UserMediaResponse> call, Response<UserMediaResponse> response) {
-                processMediaData(response,getString(R.string.pictures_from, mUsername),getString(R.string.User_no_images , mUsername), false );
-            }
-
-            @Override
-            public void onFailure(Call<UserMediaResponse> call, Throwable t) {
-
-            }
-        });
-    }
-
-    // Get media data for the user of the app.
-    private void getSelfMedia(){
-
-        Call<UserMediaResponse> call = mApiService.getSelfMedia(GlobalValues.token);
-        call.enqueue(new Callback<UserMediaResponse>() {
-
-            @Override
-            public void onResponse(Call<UserMediaResponse> call, Response<UserMediaResponse> response) {
-                processMediaData(response, getString(R.string.Your_pictres), getString(R.string.Self_no_images), true);
-            }
-
-            @Override
-            public void onFailure(Call<UserMediaResponse> call, Throwable t) {
-                failureError(t);
-            }
-        });
-    }
 
     // Process the media data.  This involves building up an array list that can be passed to
     // the RecyclerView adapter. First we throw out video files.  Then we compare each item to see
     // if it matches one of the items in our likes list. idMsg describes the user and is displayed
     // above the RecyclerView.
-    private void processMediaData(Response<UserMediaResponse> response, String idMsg, String errorMsg, boolean isFatal){
+    private void processMediaData(ArrayList<UserMediaData> data,String idMsg, String errorMsg){
 
-        Meta meta = null;
-        if (response.body() != null){
-            meta = response.body().getMeta();
-        } else {
-            if (response.errorBody() != null){
-                meta = getMetaFromErrorBody(response.errorBody());
-            }
-        }
-
-        if (metaError(meta, isFatal)){
-            return;
-        }
-        GlobalValues.setUserMediaData(response.body().getData());
+        GlobalValues.setUserMediaData(data);
 
         if (GlobalValues.alUserMediaData.size()== 0){
             mTvInfo.setText(errorMsg);
@@ -425,97 +379,67 @@ public class GridViewActivity extends AppCompatActivity {
             public void onButtonClick(int position) {
                 // User clicked on a like button.  Send inof to Instagram.
                 UserMediaData userMediaData = GlobalValues.alUserMediaData.get(position);
+                mLikeId = userMediaData.getId();
                 mThumbsAdapter.notifyItemChanged(position);
                 if (userMediaData.isLiked()){
                     userMediaData.setLiked(false);
-                    Call<PostDeleteLikeResponse> call = mApiService.deleteLike(userMediaData.getId(),GlobalValues.token);
-                    call.enqueue(new MyCallback());
+                    getLoaderManager().restartLoader(DELETE_LIKE_LOAD, null, GridViewActivity.this);
                 } else {
                     userMediaData.setLiked(true);
-                    Call<PostDeleteLikeResponse> call = mApiService.postLike(userMediaData.getId(),GlobalValues.token);
-                    call.enqueue(new MyCallback());
+                    getLoaderManager().restartLoader(POST_LIKE_LOAD, null, GridViewActivity.this);
                 }
             }
         });
-        mRecylclerView.setAdapter(mThumbsAdapter);
-        mRecylclerView.invalidate();
-    }
-
-
-    private  Meta getMetaFromErrorBody(ResponseBody responseBody){
-        Gson gson = new Gson();
-        ErrorResponse response;
-        TypeAdapter<ErrorResponse> adapter = gson.getAdapter(ErrorResponse.class);
-        try {
-            response = adapter.fromJson(responseBody.string());
-            return response.getMeta();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return null;
+        mRecyclerView.setAdapter(mThumbsAdapter);
+        mRecyclerView.invalidate();
     }
 
     // Check the Meta object for errors.  If we have an OAuthAccessTokenException, then
     // the access token probably expired.  Start the OAuthActivity so user can login.
-    // Otherwise show the error to the user then close the app.
-    private boolean metaError(Meta meta, boolean isFatal) {
+    // Otherwise show the error to the user.
+    private boolean metaError(Meta meta, int loaderId) {
 
         if (meta == null){
-            showErrorDialog(getString(R.string.Unknown), isFatal);
-        }
-
-        if ( ! meta.getCode().equals("200")){
-            if (meta.getError_type().equals("OAuthAccessTokenException")){
-                StartOauthActivity();
-            }else{
-                Log.e(TAG,"Instagram api error " + meta.getCode() + "  " + meta.getError_type() + " " + meta.getError_message());
-                showErrorDialog(getString(R.string.error , meta.getError_message()), isFatal);
-            }
+            showErrorDialog(getString(R.string.Unknown), loaderId);
             return true;
         }
-        return false;
+
+        if (meta.getCode().equals("200")){
+            return false;
+        }
+
+        if (meta.getError_type().equals("OAuthAccessTokenException")){
+            StartOauthActivity();
+            return true;
+        }
+
+        String msg = meta.getError_message();
+
+        if (meta.getError_type().equals(JsonLoader.NETWORK_IO_ERROR)){
+            msg = msg + getString(R.string.is_it_connected);
+        }
+
+        Log.e(TAG,"Error loading data from internet " + meta.getCode() + "  " + meta.getError_type() + " " + meta.getError_message());
+        showErrorDialog(msg, loaderId);
+        return true;
     }
 
-    private void showErrorDialog(String msg, final boolean isFatal){
-        String buttonLabel = (isFatal) ? getString(R.string.close_app) : getString(R.string.Ok);
+    private void showErrorDialog(String msg, final int loaderId){
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setMessage(msg)
-                .setNeutralButton(buttonLabel, new DialogInterface.OnClickListener() {
+                .setNegativeButton(getString(R.string.close_app), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
-                        if (isFatal) {
-                            finish();
-                        }
-                    }
-                })
-                .create().show();
-    }
-
-    // Retrofit returned some kind of network error.  Display the error and shut down.
-    private void failureError(Throwable t){
-        Log.e(TAG, getString(R.string.onFailure, t.getMessage()));
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setMessage(getString(R.string.error , t.getMessage()))
-                .setNeutralButton(R.string.close_app, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        setResult(RESULT_CANCELED, new Intent());
                         finish();
                     }
                 })
+                .setPositiveButton(getString(R.string.try_again), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        getLoaderManager().restartLoader(loaderId, null, GridViewActivity.this);
+                    }
+                } )
                 .create().show();
-    }
-
-    private class MyCallback implements Callback<PostDeleteLikeResponse> {
-
-        @Override
-        public void onResponse(Call<PostDeleteLikeResponse> call, Response<PostDeleteLikeResponse> response) {
-
-        }
-
-        public void onFailure(Call<PostDeleteLikeResponse> call, Throwable t) {
-            Log.e(TAG,"onFailure: " + t.getMessage());
-        }
     }
 
     @Override
@@ -530,8 +454,8 @@ public class GridViewActivity extends AppCompatActivity {
                 }else {
                     // Store the access token and retrieve first set of data.
                     GlobalValues.token = data.getStringExtra(OAuthActivity.TOKEN_EXTRA);
-                    mPrefs.edit().putString(GlobalValues.PREFS_TOKEN, GlobalValues.token).commit();
-                    getSelfMediaAndLiked();
+                    mPrefs.edit().putString(GlobalValues.PREFS_TOKEN, GlobalValues.token).apply();
+                    getLoaderManager().restartLoader(SELF_MEDIA_AND_LIKES_LOAD, null, this);
                 }
                 break;
 
@@ -546,7 +470,7 @@ public class GridViewActivity extends AppCompatActivity {
                         StartOauthActivity();
                     } else {
                         //getLiked();
-                        getSelfMediaAndLiked();
+                        getLoaderManager().initLoader(SELF_MEDIA_AND_LIKES_LOAD, null, this);
                     }
                 }
                 break;

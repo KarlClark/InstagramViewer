@@ -30,7 +30,7 @@ public class LargeViewAdapter extends RecyclerView.Adapter<LargeViewAdapter.View
     private Context mContext;
 
     // Used to store reference to who is listening.
-    private static LargeViewAdapter.OnItemClickListener mListener;
+    private LargeViewAdapter.OnItemClickListener mListener;
 
     // Define the mListener interface
     public interface OnItemClickListener {
@@ -48,11 +48,11 @@ public class LargeViewAdapter extends RecyclerView.Adapter<LargeViewAdapter.View
 
     public class ViewHolder extends RecyclerView.ViewHolder {
 
-        public ImageView largeImageView;
-        public TextView tvUserName;
-        public Button btnLike;
+        private ImageView largeImageView;
+        private TextView tvUserName;
+        private Button btnLike;
 
-        public ViewHolder (View view){
+        private ViewHolder (View view){
             super(view);
             largeImageView =(ImageView)view.findViewById(R.id.ivLarge);
             tvUserName = (TextView)view.findViewById(R.id.tvLargeViewUserName);
@@ -75,8 +75,7 @@ public class LargeViewAdapter extends RecyclerView.Adapter<LargeViewAdapter.View
         LayoutInflater inflater = LayoutInflater.from(context);
 
         View largeView = inflater.inflate(R.layout.large_item, parent, false);
-        LargeViewAdapter.ViewHolder viewHolder = new LargeViewAdapter.ViewHolder(largeView);
-        return viewHolder;
+        return new LargeViewAdapter.ViewHolder(largeView);
     }
 
     @Override
